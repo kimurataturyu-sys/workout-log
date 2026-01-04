@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workout Log</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h1>🏋️ Workout Log</h1>
+
+  <form id="logForm">
+    <input type="date" id="date" required>
+    <input type="text" id="exercise" placeholder="種目" required>
+    <input type="number" id="weight" placeholder="重量(kg)" required>
+    <input type="number" id="reps" placeholder="回数" required>
+    <input type="number" id="rir" placeholder="RIR">
+    <button type="submit">記録</button>
+  </form>
+
+  <select id="filterExercise"></select>
+  <canvas id="chart"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
