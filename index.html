@@ -12,14 +12,34 @@
 
   <form id="logForm">
     <input type="date" id="date" required>
-    <input type="text" id="exercise" placeholder="種目" required>
-    <input type="number" id="weight" placeholder="重量(kg)" required>
+
+    <!-- ワークアウト切り替え -->
+    <select id="workoutSelect" required></select>
+
+    <!-- 種目プルダウン -->
+    <select id="exerciseSelect" required></select>
+
+    <!-- セット番号 -->
+    <select id="setNo" required></select>
+
+    <!-- その種目のガイド表示 -->
+    <div id="guide" class="card"></div>
+
+    <input type="number" id="weight" placeholder="重量(kg)" required step="0.5">
     <input type="number" id="reps" placeholder="回数" required>
-    <input type="number" id="rir" placeholder="RIR">
+    <input type="number" id="rir" placeholder="RIR（余力 0〜5）">
+
+    <!-- 進め方ルールの判定表示 -->
+    <div id="feedback" class="card"></div>
+
     <button type="submit">記録</button>
   </form>
 
-  <select id="filterExercise"></select>
+  <div class="row">
+    <select id="filterExercise"></select>
+    <button id="clearBtn" type="button">全ログ削除</button>
+  </div>
+
   <canvas id="chart"></canvas>
 
   <script src="app.js"></script>

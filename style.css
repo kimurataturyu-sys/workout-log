@@ -21,3 +21,21 @@ button {
 canvas {
   margin-top: 24px;
 }
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row select, .row button {
+  width: 50%;
+}
+
+.card{
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  margin: 8px 0;
+  background: rgba(255,255,255,0.04);
+  font-size: 14px;
+  line-height: 1.4;
+}
