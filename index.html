@@ -1,58 +1,66 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Workout Log</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <h1>🏋️ Workout Log</h1>
 
   <form id="logForm">
-    <input type="date" id="date" required>
+    <input type="date" id="date" required />
 
-    <!-- ワークアウト切り替え -->
+    <!-- ワークアウト -->
     <select id="workoutSelect" required></select>
 
-    <!-- 種目プルダウン -->
+    <!-- 種目 -->
     <select id="exerciseSelect" required></select>
 
     <!-- セット番号 -->
-    <select id="setNo" required></select>
+    <select id="setNo" required>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8">8</option>
+      <option value="9">9</option>
+      <option value="10">10</option>
+    </select>
 
-    <!-- その種目のガイド表示 -->
-    <div id="guide" class="card"></div>
-
-    <input type="number" id="weight" placeholder="重量(kg)" required step="0.5">
-    <input type="number" id="reps" placeholder="回数" required>
-    <input type="number" id="rir" placeholder="RIR（余力 0〜5）">
-
-    <!-- 進め方ルールの判定表示 -->
-    <div id="feedback" class="card"></div>
+    <input type="number" id="weight" placeholder="重量(kg)" step="0.5" required />
+    <input type="number" id="reps" placeholder="回数" required />
+    <input type="number" id="rir" placeholder="RIR（余力）" />
 
     <button type="submit">記録</button>
   </form>
+
+  <hr />
 
   <div class="row">
     <select id="filterExercise"></select>
     <button id="clearBtn" type="button">全ログ削除</button>
   </div>
-<div class="row">
-  <select id="chartMetric">
-    <option value="e1rm">推定1RM</option>
-    <option value="weight">重量</option>
-    <option value="reps">回数</option>
-    <option value="volume">ボリューム（重量×回数）</option>
-  </select>
 
-  <select id="chartMode">
-    <option value="bySet">セット別</option>
-    <option value="sum">セット合計</option>
-    <option value="both">セット別＋合計</option>
-  </select>
-</div>
+  <div class="row">
+    <select id="chartMetric">
+      <option value="e1rm">推定1RM</option>
+      <option value="weight">重量</option>
+      <option value="reps">回数</option>
+      <option value="volume">ボリューム</option>
+    </select>
+
+    <select id="chartMode">
+      <option value="bySet">セット別</option>
+      <option value="sum">セット合計</option>
+      <option value="both">セット別＋合計</option>
+    </select>
+  </div>
 
   <canvas id="chart"></canvas>
 
