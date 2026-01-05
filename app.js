@@ -1,4 +1,26 @@
-// ===== 確定メニュー（PUSH / PULL / LEGS）=====
+// ===== 共通 =====
+function $(id) { return document.getElementById(id); }
+
+let logs = [];
+let chart = null;
+
+function saveLogs() { localStorage.setItem("logs", JSON.stringify(logs)); }
+function loadLogs() {
+  try { logs = JSON.parse(localStorage.getItem("logs") || "[]"); }
+  catch { logs = []; }
+}
+function e1RM(w, r) { return Math.round(w * (1 + r / 30)); }
+
+function metricValue(log, metric) {
+  switch (metric) {
+    case "weight": return log.weight;
+    case "reps": return log.reps;
+    case "volume": return log.weight * log.reps;
+    default: return e1RM(log.weight, log.reps);
+  }
+}
+
+// ===== ワークアウト定義 =====
 const WORKOUTS = [
   {
     id: "PUSH",
@@ -33,29 +55,10 @@ const WORKOUTS = [
   },
 ];
 
-// ===== データ =====
-let logs = JSON.parse(localStorage.getItem("logs") || "[]");
-let chart;
-
-// ===== 共通 =====
-function $(id) { return document.getElementById(id); }
-function saveLogs() { localStorage.setItem("logs", JSON.stringify(logs)); }
-function e1RM(w, r) { return Math.round(w * (1 + r / 30)); }
-
-function metricValue(log, metric) {
-  switch (metric) {
-    case "e1rm": return e1RM(log.weight, log.reps);
-    case "weight": return log.weight;
-    case "reps": return log.reps;
-    case "volume": return Math.round(log.weight * log.reps);
-    default: return e1RM(log.weight, log.reps);
-  }
-}
-
-// ===== プルダウン生成 =====
+// ===== セレクト生成 =====
 function populateWorkoutSelect() {
   const sel = $("workoutSelect");
-  if (!sel) return;
+  if (!sel) { console.error("workoutSelect が見つからない"); return; }
 
   sel.innerHTML = "";
   WORKOUTS.forEach(w => {
@@ -69,11 +72,11 @@ function populateWorkoutSelect() {
 }
 
 function populateExerciseSelect() {
-  const workoutId = $("workoutSelect")?.value;
-  const workout = WORKOUTS.find(w => w.id === workoutId);
+  const wsel = $("workoutSelect");
   const sel = $("exerciseSelect");
-  if (!sel || !workout) return;
+  if (!wsel || !sel) { console.error("exerciseSelect/workoutSelect が見つからない"); return; }
 
+  const workout = WORKOUTS.find(w => w.id === wsel.value) || WORKOUTS[0];
   sel.innerHTML = "";
   workout.items.forEach(ex => {
     const o = document.createElement("option");
@@ -85,97 +88,12 @@ function populateExerciseSelect() {
   if (!sel.value) sel.value = workout.items[0];
 }
 
-// ===== 記録 =====
-function addLog(log) {
-  logs.push(log);
-  saveLogs();
-}
-
-// ===== グラフ =====
-function drawChart(exercise) {
-  if (!exercise) return;
-
-  const metric = $("chartMetric")?.value || "e1rm";
-  const mode = $("chartMode")?.value || "bySet";
-
-  const data = logs
-    .filter(l => l.exercise === exercise)
-    .sort((a, b) => {
-      if (a.date === b.date) return a.setNo - b.setNo;
-      return a.date.localeCompare(b.date);
-    });
-
-  if (data.length === 0) {
-    if (chart) chart.destroy();
-    return;
-  }
-
-  // 日付ラベル
-  const labels = [...new Set(data.map(d => d.date))];
-
-  // 日付×セットで整理
-  const byDate = {};
-  data.forEach(d => {
-    byDate[d.date] ||= {};
-    byDate[d.date][d.setNo] = metricValue(d, metric);
-  });
-
-  // セット番号一覧
-  const sets = [...new Set(data.map(d => d.setNo))].sort((a, b) => a - b);
-
-  let datasets = [];
-
-  // ---- セット別 ----
-  if (mode === "bySet" || mode === "both") {
-    sets.forEach(setNo => {
-      const values = labels.map(dt => byDate[dt]?.[setNo] ?? null);
-      datasets.push({
-        label: `Set ${setNo}`,
-        data: values,
-        borderWidth: 2,
-      });
-    });
-  }
-
-  // ---- セット合計（その日の代表値）----
-  // e1RM/重量/回数 → その日の「最大値」
-  // volume → その日の「合計」
-  if (mode === "sum" || mode === "both") {
-    const sumValues = labels.map(dt => {
-      const setsObj = byDate[dt];
-      if (!setsObj) return null;
-
-      const vals = Object.values(setsObj);
-      if (metric === "volume") {
-        return vals.reduce((a, b) => a + b, 0);
-      } else {
-        return Math.max(...vals);
-      }
-    });
-
-    datasets.push({
-      label: "Set合計（その日）",
-      data: sumValues,
-      borderWidth: 3,
-      borderDash: [6, 4],
-    });
-  }
-
-  if (chart) chart.destroy();
-
-  chart = new Chart($("chart"), {
-    type: "line",
-    data: { labels, datasets },
-  });
-}
-
-// ===== フィルタ（記録済み種目一覧）=====
+// ===== フィルタ（記録済み種目）=====
 function updateFilterExercises() {
   const sel = $("filterExercise");
-  if (!sel) return;
+  if (!sel) { console.error("filterExercise が見つからない"); return; }
 
   sel.innerHTML = "";
-
   const uniq = [...new Set(logs.map(l => l.exercise).filter(Boolean))];
 
   if (uniq.length === 0) {
@@ -195,60 +113,133 @@ function updateFilterExercises() {
   });
 }
 
-// ===== イベント =====
-$("workoutSelect")?.addEventListener("change", () => {
-  populateExerciseSelect();
-});
+// ===== グラフ =====
+function drawChart(exercise) {
+  if (!exercise) return;
 
-$("filterExercise")?.addEventListener("change", e => {
-  drawChart(e.target.value);
-});
+  const metricSel = $("chartMetric");
+  const modeSel = $("chartMode");
+  const canvas = $("chart");
 
-$("chartMetric")?.addEventListener("change", () => {
-  const ex = $("filterExercise")?.value;
-  if (ex) drawChart(ex);
-});
-
-$("chartMode")?.addEventListener("change", () => {
-  const ex = $("filterExercise")?.value;
-  if (ex) drawChart(ex);
-});
-
-// ===== フォーム送信（※重量・回数は残す）=====
-$("logForm")?.addEventListener("submit", e => {
-  e.preventDefault();
-
-  const log = {
-    date: $("date").value,
-    workout: $("workoutSelect")?.value,
-    exercise: $("exerciseSelect")?.value,
-    setNo: Number($("setNo")?.value || 1),
-    weight: Number($("weight").value),
-    reps: Number($("reps").value),
-    rir: $("rir").value === "" ? null : Number($("rir").value),
-  };
-
-  addLog(log);
-
-  // 記録した種目をフィルタに反映してグラフ描画
-  updateFilterExercises();
-  if ($("filterExercise") && !$("filterExercise").disabled) {
-    $("filterExercise").value = log.exercise;
-    drawChart(log.exercise);
+  if (!metricSel || !modeSel || !canvas) {
+    console.error("chartMetric/chartMode/chart が見つからない");
+    return;
   }
 
-  // 次セットへ
-  $("setNo").value = String(Math.min(log.setNo + 1, 10));
+  const metric = metricSel.value;
+  const mode = modeSel.value;
 
-  // 重量・回数は残す（RIRだけ空に）
-  $("rir").value = "";
-});
+  const data = logs
+    .filter(l => l.exercise === exercise)
+    .sort((a, b) => (a.date === b.date) ? a.setNo - b.setNo : a.date.localeCompare(b.date));
 
-// ===== 初期化 =====
-populateWorkoutSelect();
-populateExerciseSelect();
+  if (data.length === 0) {
+    if (chart) chart.destroy();
+    chart = null;
+    return;
+  }
 
-updateFilterExercises();
-if ($("filterExercise") && !$("filterExercise").disabled) {
-  drawChart($("filterExercise").value);
+  const labels = [...new Set(data.map(d => d.date))];
+  const byDate = {};
+  data.forEach(d => {
+    byDate[d.date] ??= {};
+    byDate[d.date][d.setNo] = metricValue(d, metric);
+  });
+
+  const sets = [...new Set(data.map(d => d.setNo))].sort((a, b) => a - b);
+  const datasets = [];
+
+  if (mode === "bySet" || mode === "both") {
+    sets.forEach(s => {
+      datasets.push({
+        label: `Set ${s}`,
+        data: labels.map(dt => byDate[dt]?.[s] ?? null),
+        borderWidth: 2,
+      });
+    });
+  }
+
+  if (mode === "sum" || mode === "both") {
+    datasets.push({
+      label: "セット合計（その日）",
+      data: labels.map(dt => {
+        const vals = Object.values(byDate[dt] || {});
+        if (vals.length === 0) return null;
+        return (metric === "volume")
+          ? vals.reduce((a, b) => a + b, 0)
+          : Math.max(...vals);
+      }),
+      borderWidth: 3,
+      borderDash: [6, 4],
+    });
+  }
+
+  if (chart) chart.destroy();
+  chart = new Chart(canvas, { type: "line", data: { labels, datasets } });
 }
+
+// ===== 初期化（ここが超重要）=====
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("✅ app.js 読み込みOK");
+
+  // 日付を今日に（空だと記録できないので）
+  const d = $("date");
+  if (d && !d.value) d.value = new Date().toISOString().slice(0, 10);
+
+  loadLogs();
+
+  populateWorkoutSelect();
+  populateExerciseSelect();
+  updateFilterExercises();
+
+  // イベント
+  $("workoutSelect")?.addEventListener("change", () => {
+    populateExerciseSelect();
+  });
+
+  $("filterExercise")?.addEventListener("change", e => drawChart(e.target.value));
+  $("chartMetric")?.addEventListener("change", () => drawChart($("filterExercise")?.value));
+  $("chartMode")?.addEventListener("change", () => drawChart($("filterExercise")?.value));
+
+  $("clearBtn")?.addEventListener("click", () => {
+    if (!confirm("全ログを削除します。よろしいですか？")) return;
+    logs = [];
+    saveLogs();
+    updateFilterExercises();
+    if (chart) chart.destroy();
+    chart = null;
+  });
+
+  $("logForm")?.addEventListener("submit", e => {
+    e.preventDefault();
+
+    const log = {
+      date: $("date")?.value,
+      workout: $("workoutSelect")?.value,
+      exercise: $("exerciseSelect")?.value,
+      setNo: Number($("setNo")?.value || 1),
+      weight: Number($("weight")?.value || 0),
+      reps: Number($("reps")?.value || 0),
+      rir: $("rir")?.value === "" ? null : Number($("rir")?.value),
+    };
+
+    logs.push(log);
+    saveLogs();
+
+    updateFilterExercises();
+    const f = $("filterExercise");
+    if (f && !f.disabled) {
+      f.value = log.exercise;
+      drawChart(log.exercise);
+    }
+
+    // 次セットへ（重量・回数保持）
+    const s = $("setNo");
+    if (s) s.value = String(Math.min(log.setNo + 1, 10));
+    if ($("rir")) $("rir").value = "";
+  });
+
+  // 初期表示：記録があるなら最初の種目で描画
+  const f = $("filterExercise");
+  if (f && !f.disabled && f.value) drawChart(f.value);
+});
