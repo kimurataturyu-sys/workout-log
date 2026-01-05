@@ -39,6 +39,20 @@
     <select id="filterExercise"></select>
     <button id="clearBtn" type="button">全ログ削除</button>
   </div>
+<div class="row">
+  <select id="chartMetric">
+    <option value="e1rm">推定1RM</option>
+    <option value="weight">重量</option>
+    <option value="reps">回数</option>
+    <option value="volume">ボリューム（重量×回数）</option>
+  </select>
+
+  <select id="chartMode">
+    <option value="bySet">セット別</option>
+    <option value="sum">セット合計</option>
+    <option value="both">セット別＋合計</option>
+  </select>
+</div>
 
   <canvas id="chart"></canvas>
 
