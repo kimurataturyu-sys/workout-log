@@ -33,6 +33,36 @@ const WORKOUTS = [
     ],
   },
 ];
+function populateWorkoutSelect() {
+  const sel = $("workoutSelect");
+  if (!sel) return;
+
+  sel.innerHTML = "";
+  WORKOUTS.forEach(w => {
+    const o = document.createElement("option");
+    o.value = w.id;
+    o.textContent = w.name;
+    sel.appendChild(o);
+  });
+  sel.value = WORKOUTS[0].id;
+}
+
+function populateExerciseSelect() {
+  const workoutId = $("workoutSelect")?.value;
+  const workout = WORKOUTS.find(w => w.id === workoutId);
+  const sel = $("exerciseSelect");
+  if (!sel || !workout) return;
+
+  sel.innerHTML = "";
+  workout.items.forEach(ex => {
+    const o = document.createElement("option");
+    o.value = ex;
+    o.textContent = ex;
+    sel.appendChild(o);
+  });
+  sel.value = workout.items[0];
+}
+
 // ===== データ =====
 let logs = JSON.parse(localStorage.getItem("logs") || "[]");
 let chart;
