@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Workout Log</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -13,46 +13,41 @@
   <form id="logForm">
     <input type="date" id="date" required />
 
-    <!-- ワークアウト -->
+    <!-- ワークアウト切り替え -->
     <select id="workoutSelect" required></select>
 
-    <!-- 種目 -->
+    <!-- 種目プルダウン -->
     <select id="exerciseSelect" required></select>
 
     <!-- セット番号 -->
-    <select id="setNo" required>
-      <option value="1">1</option>
-      <option value="2">2</option>
-      <option value="3">3</option>
-      <option value="4">4</option>
-      <option value="5">5</option>
-      <option value="6">6</option>
-      <option value="7">7</option>
-      <option value="8">8</option>
-      <option value="9">9</option>
-      <option value="10">10</option>
-    </select>
+    <select id="setNo" required></select>
 
-    <input type="number" id="weight" placeholder="重量(kg)" step="0.5" required />
+    <!-- その種目のガイド表示（使ってなければ空でOK） -->
+    <div id="guide" class="card"></div>
+
+    <input type="number" id="weight" placeholder="重量(kg)" required step="0.5" />
     <input type="number" id="reps" placeholder="回数" required />
-    <input type="number" id="rir" placeholder="RIR（余力）" />
+    <input type="number" id="rir" placeholder="RIR（余力 0〜5）" />
 
-    <button type="submit">記録</button>
+    <div id="feedback" class="card"></div>
+
+    <div class="row">
+      <button type="submit">記録</button>
+      <button id="undoBtn" type="button">↩ 直前の入力を取り消す</button>
+    </div>
   </form>
 
   <hr />
 
+  <h2>📈 グラフ</h2>
   <div class="row">
     <select id="filterExercise"></select>
-    <button id="clearBtn" type="button">全ログ削除</button>
-  </div>
 
-  <div class="row">
     <select id="chartMetric">
       <option value="e1rm">推定1RM</option>
       <option value="weight">重量</option>
       <option value="reps">回数</option>
-      <option value="volume">ボリューム</option>
+      <option value="volume">ボリューム（重量×回数）</option>
     </select>
 
     <select id="chartMode">
@@ -63,6 +58,23 @@
   </div>
 
   <canvas id="chart"></canvas>
+
+  <hr />
+
+  <h2>🧹 過去ログを指定して削除</h2>
+  <div class="row">
+    <input type="date" id="manageDate" />
+    <select id="manageExercise"></select>
+    <button id="searchLogsBtn" type="button">表示</button>
+    <button id="clearFilterBtn" type="button">条件クリア</button>
+  </div>
+
+  <div class="row">
+    <button id="undoDeleteBtn" type="button" disabled>↩ 削除を戻す（1回）</button>
+    <div id="manageCount" class="card" style="flex:1"></div>
+  </div>
+
+  <div id="manageList" class="card"></div>
 
   <script src="app.js"></script>
 </body>
