@@ -164,14 +164,18 @@ function drawChart(exercise) {
 }
 
 // ===== フィルタ =====
+// ===== フィルタ =====
 function updateFilterExercises() {
   const sel = $("filterExercise");
+  if (!sel) return;
   if (!sel) return;
   sel.innerHTML = "";
 
   const uniq = [...new Set(logs.map(l => l.exercise))];
+  const uniq = [...new Set(logs.map(l => l.exercise))];
   if (uniq.length === 0) {
     const o = document.createElement("option");
+    o.textContent = "（記録なし）";
     o.textContent = "（記録なし）";
     sel.appendChild(o);
     sel.disabled = true;
@@ -203,10 +207,29 @@ $("chartMode")?.addEventListener("change", () => {
 
 // ===== フォーム送信（※重量・回数は残す）=====
 $("logForm")?.addEventListener("submit", e => {
+$("filterExercise")?.addEventListener("change", e => {
+  drawChart(e.target.value);
+});
+
+$("chartMetric")?.addEventListener("change", () => {
+  const ex = $("filterExercise")?.value;
+  if (ex) drawChart(ex);
+});
+
+$("chartMode")?.addEventListener("change", () => {
+  const ex = $("filterExercise")?.value;
+  if (ex) drawChart(ex);
+});
+
+// ===== フォーム送信（※重量・回数は残す）=====
+$("logForm")?.addEventListener("submit", e => {
   e.preventDefault();
 
   const log = {
     date: $("date").value,
+    workout: $("workoutSelect")?.value,
+    exercise: $("exerciseSelect")?.value,
+    setNo: Number($("setNo")?.value || 1),
     workout: $("workoutSelect")?.value,
     exercise: $("exerciseSelect")?.value,
     setNo: Number($("setNo")?.value || 1),
@@ -224,11 +247,20 @@ $("logForm")?.addEventListener("submit", e => {
   $("setNo").value = String(Math.min(log.setNo + 1, 10));
 
   // 重量・回数は残す
+  $("filterExercise").value = log.exercise;
+  drawChart(log.exercise);
+
+  // 次セットへ
+  $("setNo").value = String(Math.min(log.setNo + 1, 10));
+
+  // 重量・回数は残す
   $("rir").value = "";
 });
 
 // ===== 初期 =====
+// ===== 初期 =====
 updateFilterExercises();
+if ($("filterExercise") && $("filterExercise").value) {
 if ($("filterExercise") && $("filterExercise").value) {
   drawChart($("filterExercise").value);
 }
