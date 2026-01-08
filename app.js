@@ -1,10 +1,15 @@
-// ===== 共通 =====
 function $(id) { return document.getElementById(id); }
 
 let logs = [];
 let chart = null;
 
-// 削除Undo用（最後の削除1回だけ戻す）
+// 編集で選択中のログ（logs配列の index）
+let selectedIndex = null;
+
+// Undo（直前追加の取り消し）
+let lastAdded = null; // { item }
+
+// 削除Undo（編集パネルから1件削除した場合の復元用）
 let lastDeleted = null; // { index, item }
 
 function saveLogs() { localStorage.setItem("logs", JSON.stringify(logs)); }
@@ -24,7 +29,6 @@ function metricValue(log, metric) {
   }
 }
 
-// ===== ワークアウト定義 =====
 const WORKOUTS = [
   {
     id: "PUSH",
@@ -59,24 +63,9 @@ const WORKOUTS = [
   },
 ];
 
-// ===== セレクト生成 =====
-function populateSetNo() {
-  const sel = $("setNo");
-  if (!sel) return;
-  sel.innerHTML = "";
-  for (let i = 1; i <= 10; i++) {
-    const o = document.createElement("option");
-    o.value = String(i);
-    o.textContent = `Set ${i}`;
-    sel.appendChild(o);
-  }
-  sel.value = "1";
-}
-
 function populateWorkoutSelect() {
   const sel = $("workoutSelect");
-  if (!sel) { console.error("workoutSelect が見つからない"); return; }
-
+  if (!sel) return;
   sel.innerHTML = "";
   WORKOUTS.forEach(w => {
     const o = document.createElement("option");
@@ -84,15 +73,13 @@ function populateWorkoutSelect() {
     o.textContent = w.name;
     sel.appendChild(o);
   });
-
   if (!sel.value) sel.value = WORKOUTS[0].id;
 }
 
 function populateExerciseSelect() {
   const wsel = $("workoutSelect");
   const sel = $("exerciseSelect");
-  if (!wsel || !sel) { console.error("exerciseSelect/workoutSelect が見つからない"); return; }
-
+  if (!wsel || !sel) return;
   const workout = WORKOUTS.find(w => w.id === wsel.value) || WORKOUTS[0];
   sel.innerHTML = "";
   workout.items.forEach(ex => {
@@ -101,8 +88,20 @@ function populateExerciseSelect() {
     o.textContent = ex;
     sel.appendChild(o);
   });
-
   if (!sel.value) sel.value = workout.items[0];
+}
+
+function populateSetNo(selectId) {
+  const sel = $(selectId);
+  if (!sel) return;
+  sel.innerHTML = "";
+  for (let i = 1; i <= 10; i++) {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `Set ${i}`;
+    sel.appendChild(o);
+  }
+  if (!sel.value) sel.value = "1";
 }
 
 // ===== フィルタ（グラフ用）=====
@@ -131,7 +130,6 @@ function updateFilterExercises() {
     sel.appendChild(o);
   });
 
-  // できるだけ前の選択を維持
   sel.value = uniq.includes(current) ? current : uniq[0];
 }
 
@@ -142,7 +140,6 @@ function drawChart(exercise) {
   const metricSel = $("chartMetric");
   const modeSel = $("chartMode");
   const canvas = $("chart");
-
   if (!metricSel || !modeSel || !canvas) return;
 
   const metric = metricSel.value;
@@ -198,12 +195,13 @@ function drawChart(exercise) {
   chart = new Chart(canvas, { type: "line", data: { labels, datasets } });
 }
 
-// ===== 直前の入力を取り消す（Undo追加）=====
-function undoLastLog() {
-  if (logs.length === 0) {
+// ===== 直前追加をUndo =====
+function undoLastAdd() {
+  if (!lastAdded || logs.length === 0) {
     alert("取り消せる記録がありません");
     return;
   }
+
   const last = logs[logs.length - 1];
   const ok = confirm(
     `直前の記録を削除しますか？\n\n${last.date}\n${last.exercise}\n${last.weight}kg × ${last.reps}回 (Set ${last.setNo})`
@@ -212,229 +210,226 @@ function undoLastLog() {
 
   logs.pop();
   saveLogs();
+  lastAdded = null;
 
   updateFilterExercises();
   const ex = $("filterExercise")?.value;
   if (ex && !$("filterExercise")?.disabled) drawChart(ex);
 
-  // 管理画面の表示中なら更新
-  renderManageList();
+  // 編集一覧が表示中なら更新
+  renderEditList();
 }
 
-// ===== 管理：削除対象の種目プルダウン =====
-function updateManageExerciseSelect() {
-  const sel = $("manageExercise");
-  if (!sel) return;
-
-  const current = sel.value;
-  sel.innerHTML = "";
-
-  const uniq = [...new Set(logs.map(l => l.exercise).filter(Boolean))];
-
-  const o0 = document.createElement("option");
-  o0.value = "";
-  o0.textContent = "（種目を選択）";
-  sel.appendChild(o0);
-
-  uniq.forEach(ex => {
-    const o = document.createElement("option");
-    o.value = ex;
-    o.textContent = ex;
-    sel.appendChild(o);
-  });
-
-  // できるだけ維持
-  if (uniq.includes(current)) sel.value = current;
-  else sel.value = "";
-}
-
-// ===== 管理：条件に合うログを一覧表示 =====
-function getManageFilteredLogs() {
-  const date = $("manageDate")?.value || "";
-  const ex = $("manageExercise")?.value || "";
-
+// ===== 編集：日付で一覧表示 =====
+function getLogsByDate(dateStr) {
   return logs
     .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => {
-      const okDate = date ? item.date === date : true;
-      const okEx = ex ? item.exercise === ex : true;
-      return okDate && okEx;
-    })
+    .filter(({ item }) => item.date === dateStr)
     .sort((a, b) => {
-      // 日付→種目→setNo
-      if (a.item.date !== b.item.date) return a.item.date.localeCompare(b.item.date);
       if (a.item.exercise !== b.item.exercise) return a.item.exercise.localeCompare(b.item.exercise);
       return a.item.setNo - b.item.setNo;
     });
 }
 
-function renderManageList() {
-  const box = $("manageList");
-  const countBox = $("manageCount");
-  if (!box || !countBox) return;
+function renderEditList() {
+  const dateStr = $("editDate")?.value;
+  const info = $("editInfo");
+  const list = $("editList");
+  if (!info || !list) return;
 
-  const filtered = getManageFilteredLogs();
-  countBox.textContent = `表示件数：${filtered.length}件（条件：日付=${$("manageDate")?.value || "指定なし"} / 種目=${$("manageExercise")?.value || "指定なし"}）`;
-
-  if (filtered.length === 0) {
-    box.innerHTML = "（該当ログなし）";
+  if (!dateStr) {
+    info.textContent = "日付を指定して「一覧表示」を押してください。";
+    list.innerHTML = "";
+    hideEditPanel();
     return;
   }
 
-  // 一覧HTML
-  const rows = filtered.map(({ item, idx }) => {
+  const rows = getLogsByDate(dateStr);
+  info.textContent = `日付：${dateStr} / ${rows.length}件（タップして編集）`;
+
+  if (rows.length === 0) {
+    list.innerHTML = "（この日のログはありません）";
+    hideEditPanel();
+    return;
+  }
+
+  list.innerHTML = rows.map(({ item, idx }) => {
+    const selected = (idx === selectedIndex) ? " style='background:rgba(255,255,255,0.08);'" : "";
     const rirText = (item.rir === null || item.rir === undefined) ? "-" : item.rir;
     return `
-      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #333;">
-        <div style="flex:1;min-width:0;">
-          <div><strong>${item.date}</strong> / ${item.workout || ""}</div>
-          <div>${item.exercise} / Set ${item.setNo}： <strong>${item.weight}kg × ${item.reps}</strong> / RIR ${rirText}</div>
-        </div>
-        <button type="button" data-del="${idx}" style="white-space:nowrap;">🗑 削除</button>
+      <div data-idx="${idx}"${selected}
+        style="padding:10px;border-bottom:1px solid #333;cursor:pointer;">
+        <div><strong>${item.exercise}</strong> / Set ${item.setNo}</div>
+        <div>${item.weight}kg × ${item.reps}回 / RIR ${rirText}</div>
       </div>
     `;
   }).join("");
 
-  box.innerHTML = rows;
-
-  // 削除ボタンイベント
-  box.querySelectorAll("button[data-del]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.getAttribute("data-del"));
-      deleteLogAtIndex(idx);
+  // クリックで選択
+  list.querySelectorAll("[data-idx]").forEach(el => {
+    el.addEventListener("click", () => {
+      const idx = Number(el.getAttribute("data-idx"));
+      openEditPanel(idx);
+      renderEditList(); // 選択ハイライト更新
     });
   });
 }
 
-// ===== 管理：指定ログ削除（確認 + Undo）=====
-function deleteLogAtIndex(index) {
+function openEditPanel(index) {
   const item = logs[index];
   if (!item) return;
 
+  selectedIndex = index;
+
+  $("editPanel").style.display = "block";
+  $("editExerciseLabel").textContent = item.exercise;
+  $("editDateLabel").textContent = item.date;
+
+  $("editSetNo").value = String(item.setNo);
+  $("editWeight").value = String(item.weight);
+  $("editReps").value = String(item.reps);
+  $("editRir").value = (item.rir === null || item.rir === undefined) ? "" : String(item.rir);
+}
+
+function hideEditPanel() {
+  selectedIndex = null;
+  const p = $("editPanel");
+  if (p) p.style.display = "none";
+}
+
+function saveEdit() {
+  if (selectedIndex === null) return;
+  const old = logs[selectedIndex];
+  if (!old) return;
+
+  const next = {
+    ...old,
+    setNo: Number($("editSetNo").value),
+    weight: Number($("editWeight").value),
+    reps: Number($("editReps").value),
+    rir: $("editRir").value === "" ? null : Number($("editRir").value),
+  };
+
   const ok = confirm(
-    `このログを削除しますか？\n\n${item.date}\n${item.exercise}\n${item.weight}kg × ${item.reps}回 (Set ${item.setNo})`
+    `この内容で保存しますか？\n\n${next.date}\n${next.exercise}\nSet ${next.setNo}\n${next.weight}kg × ${next.reps}回 / RIR ${next.rir ?? "-"}`
   );
   if (!ok) return;
 
-  // Undo用に保存
-  lastDeleted = { index, item };
-
-  logs.splice(index, 1);
+  logs[selectedIndex] = next;
   saveLogs();
 
-  // Undoボタン有効化
-  const u = $("undoDeleteBtn");
-  if (u) u.disabled = false;
-
-  // 画面更新
+  // 表示更新
   updateFilterExercises();
-  updateManageExerciseSelect();
-  renderManageList();
-
   const ex = $("filterExercise")?.value;
   if (ex && !$("filterExercise")?.disabled) drawChart(ex);
+
+  renderEditList();
+  openEditPanel(selectedIndex); // 編集欄を最新値で更新
 }
 
-// ===== 管理：削除Undo（1回）=====
-function undoDeleteOnce() {
-  if (!lastDeleted) return;
+function deleteSelected() {
+  if (selectedIndex === null) return;
+  const item = logs[selectedIndex];
+  if (!item) return;
 
-  const { index, item } = lastDeleted;
+  const ok = confirm(
+    `この1件を削除しますか？\n\n${item.date}\n${item.exercise}\n${item.weight}kg × ${item.reps}回 (Set ${item.setNo})`
+  );
+  if (!ok) return;
 
-  // なるべく元の位置に戻す（範囲外なら末尾）
-  const pos = Math.min(Math.max(index, 0), logs.length);
-  logs.splice(pos, 0, item);
+  lastDeleted = { index: selectedIndex, item };
+  logs.splice(selectedIndex, 1);
   saveLogs();
 
-  lastDeleted = null;
-  const u = $("undoDeleteBtn");
-  if (u) u.disabled = true;
+  hideEditPanel();
+  renderEditList();
 
   updateFilterExercises();
-  updateManageExerciseSelect();
-  renderManageList();
-
   const ex = $("filterExercise")?.value;
   if (ex && !$("filterExercise")?.disabled) drawChart(ex);
+
+  alert("削除しました（※取り消し機能は今後追加可能）");
 }
 
 // ===== 起動 =====
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("✅ app.js 読み込みOK");
-
   loadLogs();
 
-  // 日付
+  // 今日をセット
   const d = $("date");
   if (d && !d.value) d.value = new Date().toISOString().slice(0, 10);
 
-  const md = $("manageDate");
-  if (md && !md.value) md.value = ""; // 管理側は空でOK
+  // 編集日付も今日にしておく（好み）
+  const ed = $("editDate");
+  if (ed && !ed.value) ed.value = new Date().toISOString().slice(0, 10);
 
-  // セレクト初期化
   populateWorkoutSelect();
   populateExerciseSelect();
-  populateSetNo();
+  populateSetNo("setNo");
+  populateSetNo("editSetNo");
 
-  // ログ反映
   updateFilterExercises();
-  updateManageExerciseSelect();
-  renderManageList();
+  const f = $("filterExercise");
+  if (f && !f.disabled && f.value) drawChart(f.value);
 
   // イベント
-  $("workoutSelect")?.addEventListener("change", () => populateExerciseSelect());
+  $("workoutSelect")?.addEventListener("change", populateExerciseSelect);
 
   $("filterExercise")?.addEventListener("change", e => drawChart(e.target.value));
   $("chartMetric")?.addEventListener("change", () => drawChart($("filterExercise")?.value));
   $("chartMode")?.addEventListener("change", () => drawChart($("filterExercise")?.value));
 
-  $("undoBtn")?.addEventListener("click", undoLastLog);
+  $("undoBtn")?.addEventListener("click", undoLastAdd);
 
-  $("searchLogsBtn")?.addEventListener("click", renderManageList);
-  $("clearFilterBtn")?.addEventListener("click", () => {
-    if ($("manageDate")) $("manageDate").value = "";
-    if ($("manageExercise")) $("manageExercise").value = "";
-    renderManageList();
+  $("showByDateBtn")?.addEventListener("click", renderEditList);
+  $("clearEditBtn")?.addEventListener("click", () => {
+    if ($("editDate")) $("editDate").value = "";
+    hideEditPanel();
+    renderEditList();
   });
 
-  $("undoDeleteBtn")?.addEventListener("click", undoDeleteOnce);
+  $("saveEditBtn")?.addEventListener("click", saveEdit);
+  $("cancelEditBtn")?.addEventListener("click", () => {
+    hideEditPanel();
+    renderEditList();
+  });
+
+  $("deleteSelectedBtn")?.addEventListener("click", deleteSelected);
 
   // 記録
   $("logForm")?.addEventListener("submit", e => {
     e.preventDefault();
 
     const log = {
-      date: $("date")?.value,
-      workout: $("workoutSelect")?.value,
-      exercise: $("exerciseSelect")?.value,
-      setNo: Number($("setNo")?.value || 1),
-      weight: Number($("weight")?.value || 0),
-      reps: Number($("reps")?.value || 0),
-      rir: $("rir")?.value === "" ? null : Number($("rir")?.value),
+      date: $("date").value,
+      workout: $("workoutSelect").value,
+      exercise: $("exerciseSelect").value,
+      setNo: Number($("setNo").value),
+      weight: Number($("weight").value),
+      reps: Number($("reps").value),
+      rir: $("rir").value === "" ? null : Number($("rir").value),
     };
 
     logs.push(log);
     saveLogs();
+    lastAdded = { item: log };
 
     // グラフ更新
     updateFilterExercises();
-    const f = $("filterExercise");
-    if (f && !f.disabled) {
-      f.value = log.exercise;
+    const fx = $("filterExercise");
+    if (fx && !fx.disabled) {
+      fx.value = log.exercise;
       drawChart(log.exercise);
     }
 
-    // 管理側更新
-    updateManageExerciseSelect();
-    renderManageList();
+    // 編集一覧も更新（同じ日付なら即反映）
+    renderEditList();
 
-    // 次セットへ（重量・回数保持、RIRだけクリア）
-    const s = $("setNo");
-    if (s) s.value = String(Math.min(log.setNo + 1, 10));
-    if ($("rir")) $("rir").value = "";
+    // 次セットへ（重量/回数保持、RIRだけ空）
+    $("setNo").value = String(Math.min(log.setNo + 1, 10));
+    $("rir").value = "";
   });
 
-  // 初期グラフ
-  const f = $("filterExercise");
-  if (f && !f.disabled && f.value) drawChart(f.value);
+  // 初期表示
+  renderEditList();
 });
