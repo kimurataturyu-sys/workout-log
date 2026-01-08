@@ -8,108 +8,243 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <h1>🏋️ Workout Log</h1>
+  <header class="topbar">
+    <div class="title">🏋️ Workout Log</div>
 
-  <section class="card">
-    <h2>🚀 トレーニング開始</h2>
-    <div class="row">
-      <select id="presetSelect"></select>
-      <button id="startSessionBtn" type="button">このプリセットで開始</button>
-    </div>
-    <div id="sessionInfo" class="card"></div>
+    <nav class="tabs" aria-label="画面切替">
+      <button class="tab" data-route="log" type="button">記録</button>
+      <button class="tab" data-route="presets" type="button">プリセット</button>
+      <button class="tab" data-route="history" type="button">履歴/修正</button>
+    </nav>
+  </header>
 
-    <div class="row" style="align-items:flex-end;">
-      <div style="flex:1;">
-        <div style="font-size:12px;opacity:0.8;">当日メニュー（タップで差替え）</div>
-        <div id="sessionExercises" class="card"></div>
+  <!-- ===== 記録画面 ===== -->
+  <main id="view-log" class="view">
+    <h2 class="viewTitle">記録</h2>
+
+    <form id="logForm" class="card">
+      <div class="grid2">
+        <label class="field">
+          <span class="label">日付</span>
+          <input type="date" id="date" required />
+        </label>
+
+        <label class="field">
+          <span class="label">プリセット</span>
+          <select id="presetSelect" required></select>
+        </label>
+
+        <label class="field">
+          <span class="label">種目</span>
+          <select id="exerciseSelect" required></select>
+        </label>
+
+        <label class="field">
+          <span class="label">セット</span>
+          <select id="setNo" required></select>
+        </label>
       </div>
-    </div>
-  </section>
 
-  <section class="card">
-    <h2>➕ 記録</h2>
-    <form id="logForm">
-      <input type="date" id="date" required />
-      <select id="workoutSelect" required></select>
-      <select id="exerciseSelect" required></select>
-      <select id="setNo" required></select>
+      <div id="guide" class="card subtle"></div>
 
-      <input type="number" id="weight" placeholder="重量(kg)" required step="0.5" />
-      <input type="number" id="reps" placeholder="回数" required />
-      <input type="number" id="rir" placeholder="RIR（余力 0〜5）" />
+      <div class="grid3">
+        <label class="field">
+          <span class="label">重量(kg)</span>
+          <input type="number" id="weight" placeholder="例：80" required step="0.5" inputmode="decimal" />
+        </label>
 
-      <div id="feedback" class="card"></div>
+        <label class="field">
+          <span class="label">回数</span>
+          <input type="number" id="reps" placeholder="例：8" required inputmode="numeric" />
+        </label>
 
-      <div class="row">
-        <button type="submit">記録</button>
-        <button id="undoBtn" type="button">↩ 直前の入力を取り消す</button>
+        <label class="field">
+          <span class="label">RIR</span>
+          <input type="number" id="rir" placeholder="1〜2推奨" min="0" max="5" inputmode="numeric" />
+        </label>
       </div>
+
+      <div id="feedback" class="card subtle"></div>
+
+      <button type="submit" class="primary">記録（次セットへ）</button>
+      <p class="hint">※「記録」後は <b>重量・回数は残る</b>／セット番号だけ+1されます（RIRは空に戻ります）</p>
     </form>
-  </section>
 
-  <section class="card">
-    <h2>📈 グラフ</h2>
-    <div class="row">
-      <select id="filterExercise"></select>
-
-      <select id="chartMetric">
-        <option value="e1rm">推定1RM</option>
-        <option value="weight">重量</option>
-        <option value="reps">回数</option>
-        <option value="volume">ボリューム（重量×回数）</option>
-      </select>
-
-      <select id="chartMode">
-        <option value="bySet">セット別</option>
-        <option value="sum">セット合計</option>
-        <option value="both">セット別＋合計</option>
-      </select>
-    </div>
-
-    <canvas id="chart"></canvas>
-  </section>
-
-  <section class="card">
-    <h2>🧩 プリセット管理</h2>
-
-    <div class="row">
-      <input id="presetName" placeholder="プリセット名（例：PUSH 基本）" style="flex:2;" />
-      <select id="presetBaseWorkout" style="flex:1;">
-        <option value="PUSH">PUSH</option>
-        <option value="PULL">PULL</option>
-        <option value="LEGS">LEGS</option>
-      </select>
-      <button id="createPresetBtn" type="button">新規作成</button>
-    </div>
-
-    <div class="row">
-      <select id="managePresetSelect" style="flex:2;"></select>
-      <button id="renamePresetBtn" type="button">名前変更</button>
-      <button id="deletePresetBtn" type="button">削除</button>
-    </div>
-
-    <div class="row">
-      <input id="newExerciseName" placeholder="種目名（例：ベンチプレス）" style="flex:2;" />
-      <input id="newMin" type="number" placeholder="min回数" style="width:90px;" />
-      <input id="newMax" type="number" placeholder="max回数" style="width:90px;" />
-      <button id="addExerciseBtn" type="button">種目追加</button>
-    </div>
-
-    <div id="presetExercises" class="card"></div>
-  </section>
-
-  <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);padding:18px;">
-    <div class="card" style="max-width:720px;margin:0 auto;">
-      <h3>🔁 種目を差替え</h3>
-      <div id="swapTitle" style="margin-bottom:8px;opacity:.9;"></div>
+    <section class="card">
       <div class="row">
-        <select id="swapToSelect" style="flex:1;"></select>
-        <button id="swapConfirmBtn" type="button">差替える</button>
-        <button id="swapCancelBtn" type="button">キャンセル</button>
+        <label class="field grow">
+          <span class="label">グラフ種目</span>
+          <select id="filterExercise"></select>
+        </label>
+
+        <label class="field">
+          <span class="label">指標</span>
+          <select id="chartMetric">
+            <option value="e1rm">推定1RM</option>
+            <option value="weight">重量</option>
+            <option value="reps">回数</option>
+            <option value="volume">ボリューム（重量×回数）</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="label">表示</span>
+          <select id="chartMode">
+            <option value="bySet">セット別</option>
+            <option value="sum">セット合計（その日）</option>
+            <option value="both">セット別＋合計</option>
+          </select>
+        </label>
       </div>
-      <div style="font-size:12px;opacity:0.8;margin-top:8px;">
-        ※差替えは「今日のメニュー」だけ変更。差替え履歴は次回以降の候補に残ります。
+
+      <div class="chartWrap">
+        <canvas id="chart"></canvas>
       </div>
+    </section>
+  </main>
+
+  <!-- ===== プリセット画面 ===== -->
+  <main id="view-presets" class="view">
+    <h2 class="viewTitle">プリセット管理</h2>
+
+    <section class="card">
+      <div class="grid2">
+        <label class="field">
+          <span class="label">プリセット名</span>
+          <input id="presetName" placeholder="例：PUSH（胸・肩・三頭）" />
+        </label>
+
+        <label class="field">
+          <span class="label">タイプ</span>
+          <select id="presetType">
+            <option value="PUSH">PUSH</option>
+            <option value="PULL">PULL</option>
+            <option value="LEGS">LEGS</option>
+            <option value="OTHER">OTHER</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <button id="createPresetBtn" class="primary" type="button">新規作成</button>
+        <button id="renamePresetBtn" type="button">名前変更</button>
+        <button id="deletePresetBtn" class="danger" type="button">削除</button>
+      </div>
+
+      <hr class="sep" />
+
+      <div class="grid2">
+        <label class="field">
+          <span class="label">対象プリセット</span>
+          <select id="managePresetSelect"></select>
+        </label>
+
+        <label class="field">
+          <span class="label">当日だけ差替え（テンプレ保存）</span>
+          <button id="makeVariantBtn" type="button">このプリセットを「差替え用テンプレ」に複製</button>
+        </label>
+      </div>
+
+      <div class="grid2">
+        <label class="field">
+          <span class="label">種目名</span>
+          <input id="newExName" placeholder="例：ベンチプレス" />
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span class="label">min回数</span>
+            <input id="newExMin" type="number" placeholder="6" inputmode="numeric" />
+          </label>
+          <label class="field">
+            <span class="label">max回数</span>
+            <input id="newExMax" type="number" placeholder="8" inputmode="numeric" />
+          </label>
+          <button id="addExerciseBtn" class="primary" type="button">種目追加</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 class="subTitle">種目一覧（並び替え・削除）</h3>
+      <div id="presetList" class="list"></div>
+      <p class="hint">※スマホで見やすいように、1行カード表示にしてあります</p>
+    </section>
+  </main>
+
+  <!-- ===== 履歴/修正画面 ===== -->
+  <main id="view-history" class="view">
+    <h2 class="viewTitle">履歴 / 修正</h2>
+
+    <section class="card">
+      <div class="grid2">
+        <label class="field">
+          <span class="label">日付で絞り込み</span>
+          <input type="date" id="historyDate" />
+        </label>
+
+        <div class="row">
+          <button id="historyLoadBtn" class="primary" type="button">この日付の一覧を表示</button>
+          <button id="historyClearDateBtn" type="button">日付クリア</button>
+        </div>
+      </div>
+
+      <div id="historyList" class="list"></div>
+      <p class="hint">※ 1件タップ → 編集／削除できます（全削除ボタンは無し）</p>
+    </section>
+  </main>
+
+  <!-- ===== 編集モーダル ===== -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modalBox">
+      <div class="modalHead">
+        <div id="modalTitle" class="modalTitle">ログを編集</div>
+        <button id="modalClose" class="iconBtn" type="button" aria-label="閉じる">✕</button>
+      </div>
+
+      <div class="grid2">
+        <label class="field">
+          <span class="label">日付</span>
+          <input type="date" id="editDate" required />
+        </label>
+
+        <label class="field">
+          <span class="label">プリセット</span>
+          <select id="editPreset"></select>
+        </label>
+
+        <label class="field">
+          <span class="label">種目</span>
+          <select id="editExercise"></select>
+        </label>
+
+        <label class="field">
+          <span class="label">セット</span>
+          <input type="number" id="editSetNo" min="1" max="20" inputmode="numeric" />
+        </label>
+      </div>
+
+      <div class="grid3">
+        <label class="field">
+          <span class="label">重量(kg)</span>
+          <input type="number" id="editWeight" step="0.5" inputmode="decimal" />
+        </label>
+        <label class="field">
+          <span class="label">回数</span>
+          <input type="number" id="editReps" inputmode="numeric" />
+        </label>
+        <label class="field">
+          <span class="label">RIR</span>
+          <input type="number" id="editRir" min="0" max="5" inputmode="numeric" />
+        </label>
+      </div>
+
+      <div class="row end">
+        <button id="deleteLogBtn" class="danger" type="button">このログを削除</button>
+        <button id="saveEditBtn" class="primary" type="button">変更を保存</button>
+      </div>
+
+      <p class="hint">※ 種目（exercise）も日付も変更できます</p>
     </div>
   </div>
 

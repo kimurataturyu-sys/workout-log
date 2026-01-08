@@ -1,41 +1,131 @@
-body {
-  font-family: system-ui, sans-serif;
-  padding: 16px;
-  background: #111;
-  color: #fff;
+:root{
+  --bg:#0f0f0f;
+  --panel:#1b1b1b;
+  --panel2:#141414;
+  --border:#2b2b2b;
+  --text:#ffffff;
+  --muted:#cfcfcf;
+  --green:#2ea44f;
 }
 
-input, button, select {
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px;
+*{ box-sizing:border-box; }
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background:var(--bg);
+  color:var(--text);
 }
 
-button {
-  background: #4caf50;
-  border: none;
-  color: white;
-  font-size: 16px;
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:10;
+  background:linear-gradient(180deg, #0f0f0f 0%, #0f0f0f 70%, rgba(15,15,15,.85) 100%);
+  border-bottom:1px solid #222;
+  padding:12px;
 }
 
-canvas {
-  margin-top: 24px;
-}
-.row {
-  display: flex;
-  gap: 8px;
+.title{
+  font-weight:800;
+  font-size:18px;
+  margin-bottom:10px;
 }
 
-.row select, .row button {
-  width: 50%;
+.tabs{
+  display:flex;
+  gap:8px;
+}
+
+.tab{
+  flex:1;
+  padding:10px 12px;
+  font-size:16px;
+  border-radius:14px;
+  border:1px solid var(--border);
+  background:#171717;
+  color:var(--text);
+}
+.tab.active{
+  background:var(--green);
+  border-color:var(--green);
+}
+
+.view{ display:none; padding-bottom:24px; }
+.view.active{ display:block; }
+
+.viewTitle{
+  margin:12px;
+  font-size:18px;
 }
 
 .card{
-  padding: 10px;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
-  margin: 8px 0;
-  background: rgba(255,255,255,0.04);
-  font-size: 14px;
-  line-height: 1.4;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:12px;
+  margin:12px;
+}
+
+.subtle{
+  background:var(--panel2);
+  border-color:#242424;
+  color:var(--muted);
+}
+
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-bottom:10px;
+}
+
+.lbl{
+  min-width:72px;
+  color:var(--muted);
+  font-size:14px;
+}
+
+input, select, button{
+  font-size:16px;
+  padding:10px;
+  border-radius:12px;
+  border:1px solid #333;
+  background:#111;
+  color:var(--text);
+}
+
+select, input[type="date"]{ flex:1; min-width: 160px; }
+input[type="number"]{ flex:1; min-width: 120px; }
+
+button.primary{
+  width:100%;
+  padding:12px;
+  background:var(--green);
+  border-color:var(--green);
+  font-weight:800;
+  border-radius:14px;
+}
+
+.chartWrap{
+  margin-top:10px;
+  background:#0d0d0d;
+  border:1px solid #242424;
+  border-radius:16px;
+  padding:8px;
+}
+
+.hint{
+  margin-top:10px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.4;
+}
+
+.placeholder{
+  margin-top:10px;
+  padding:14px;
+  border-radius:14px;
+  border:1px dashed #3a3a3a;
+  color:var(--muted);
 }
