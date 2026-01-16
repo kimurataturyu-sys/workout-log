@@ -1,3 +1,4 @@
+window.addEventListener("DOMContentLoaded", () => {
 // =========================
 // Workout Log (SPA)
 // record / presets / history
@@ -5,6 +6,7 @@
 // =========================
 
 // ----- Storage -----
+
 const DB_KEY = "workoutlog_v2";
 
 function initDB() {
@@ -624,3 +626,4 @@ function escapeHtml(s) {
 // init
 initRouteFromHash();
 renderAll();
+});
