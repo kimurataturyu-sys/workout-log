@@ -1,253 +1,64 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Workout Log</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="title">🏋️ Workout Log</div>
-
-    <nav class="tabs" aria-label="画面切替">
-      <button class="tab" data-route="log" type="button">記録</button>
-      <button class="tab" data-route="presets" type="button">プリセット</button>
-      <button class="tab" data-route="history" type="button">履歴/修正</button>
-    </nav>
+    <button id="btnMenu" class="iconBtn" aria-label="menu">☰</button>
+    <div class="title">Workout Log</div>
+    <button id="btnBackup" class="iconBtn" aria-label="backup">⤓</button>
   </header>
 
-  <!-- ===== 記録画面 ===== -->
-  <main id="view-log" class="view">
-    <h2 class="viewTitle">記録</h2>
-
-    <form id="logForm" class="card">
-      <div class="grid2">
-        <label class="field">
-          <span class="label">日付</span>
-          <input type="date" id="date" required />
-        </label>
-
-        <label class="field">
-          <span class="label">プリセット</span>
-          <select id="presetSelect" required></select>
-        </label>
-
-        <label class="field">
-          <span class="label">種目</span>
-          <select id="exerciseSelect" required></select>
-        </label>
-
-        <label class="field">
-          <span class="label">セット</span>
-          <select id="setNo" required></select>
-        </label>
-      </div>
-
-      <div id="guide" class="card subtle"></div>
-
-      <div class="grid3">
-        <label class="field">
-          <span class="label">重量(kg)</span>
-          <input type="number" id="weight" placeholder="例：80" required step="0.5" inputmode="decimal" />
-        </label>
-
-        <label class="field">
-          <span class="label">回数</span>
-          <input type="number" id="reps" placeholder="例：8" required inputmode="numeric" />
-        </label>
-
-        <label class="field">
-          <span class="label">RIR</span>
-          <input type="number" id="rir" placeholder="1〜2推奨" min="0" max="5" inputmode="numeric" />
-        </label>
-      </div>
-
-      <div id="feedback" class="card subtle"></div>
-
-      <button type="submit" class="primary">記録（次セットへ）</button>
-      <p class="hint">※「記録」後は <b>重量・回数は残る</b>／セット番号だけ+1されます（RIRは空に戻ります）</p>
-    </form>
-
-    <section class="card">
-      <div class="row">
-        <label class="field grow">
-          <span class="label">グラフ種目</span>
-          <select id="filterExercise"></select>
-        </label>
-
-        <label class="field">
-          <span class="label">指標</span>
-          <select id="chartMetric">
-            <option value="e1rm">推定1RM</option>
-            <option value="weight">重量</option>
-            <option value="reps">回数</option>
-            <option value="volume">ボリューム（重量×回数）</option>
-          </select>
-        </label>
-
-        <label class="field">
-          <span class="label">表示</span>
-          <select id="chartMode">
-            <option value="bySet">セット別</option>
-            <option value="sum">セット合計（その日）</option>
-            <option value="both">セット別＋合計</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="chartWrap">
-        <canvas id="chart"></canvas>
-      </div>
-    </section>
+  <main class="container">
+    <section id="view-record" class="view"></section>
+    <section id="view-presets" class="view"></section>
+    <section id="view-history" class="view"></section>
   </main>
 
-  <!-- ===== プリセット画面 ===== -->
-  <main id="view-presets" class="view">
-    <h2 class="viewTitle">プリセット管理</h2>
+  <nav class="tabs">
+    <button class="tab" data-route="record">記録</button>
+    <button class="tab" data-route="presets">プリセット</button>
+    <button class="tab" data-route="history">履歴</button>
+  </nav>
 
-    <section class="card">
-      <div class="grid2">
-        <label class="field">
-          <span class="label">プリセット名</span>
-          <input id="presetName" placeholder="例：PUSH（胸・肩・三頭）" />
-        </label>
-
-        <label class="field">
-          <span class="label">タイプ</span>
-          <select id="presetType">
-            <option value="PUSH">PUSH</option>
-            <option value="PULL">PULL</option>
-            <option value="LEGS">LEGS</option>
-            <option value="OTHER">OTHER</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="row">
-        <button id="createPresetBtn" class="primary" type="button">新規作成</button>
-        <button id="renamePresetBtn" type="button">名前変更</button>
-        <button id="deletePresetBtn" class="danger" type="button">削除</button>
-      </div>
-
-      <hr class="sep" />
-
-      <div class="grid2">
-        <label class="field">
-          <span class="label">対象プリセット</span>
-          <select id="managePresetSelect"></select>
-        </label>
-
-        <label class="field">
-          <span class="label">当日だけ差替え（テンプレ保存）</span>
-          <button id="makeVariantBtn" type="button">このプリセットを「差替え用テンプレ」に複製</button>
-        </label>
-      </div>
-
-      <div class="grid2">
-        <label class="field">
-          <span class="label">種目名</span>
-          <input id="newExName" placeholder="例：ベンチプレス" />
-        </label>
-
-        <div class="row">
-          <label class="field">
-            <span class="label">min回数</span>
-            <input id="newExMin" type="number" placeholder="6" inputmode="numeric" />
-          </label>
-          <label class="field">
-            <span class="label">max回数</span>
-            <input id="newExMax" type="number" placeholder="8" inputmode="numeric" />
-          </label>
-          <button id="addExerciseBtn" class="primary" type="button">種目追加</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h3 class="subTitle">種目一覧（並び替え・削除）</h3>
-      <div id="presetList" class="list"></div>
-      <p class="hint">※スマホで見やすいように、1行カード表示にしてあります</p>
-    </section>
-  </main>
-
-  <!-- ===== 履歴/修正画面 ===== -->
-  <main id="view-history" class="view">
-    <h2 class="viewTitle">履歴 / 修正</h2>
-
-    <section class="card">
-      <div class="grid2">
-        <label class="field">
-          <span class="label">日付で絞り込み</span>
-          <input type="date" id="historyDate" />
-        </label>
-
-        <div class="row">
-          <button id="historyLoadBtn" class="primary" type="button">この日付の一覧を表示</button>
-          <button id="historyClearDateBtn" type="button">日付クリア</button>
-        </div>
-      </div>
-
-      <div id="historyList" class="list"></div>
-      <p class="hint">※ 1件タップ → 編集／削除できます（全削除ボタンは無し）</p>
-    </section>
-  </main>
-
-  <!-- ===== 編集モーダル ===== -->
-  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modalBox">
-      <div class="modalHead">
-        <div id="modalTitle" class="modalTitle">ログを編集</div>
-        <button id="modalClose" class="iconBtn" type="button" aria-label="閉じる">✕</button>
-      </div>
-
-      <div class="grid2">
-        <label class="field">
-          <span class="label">日付</span>
-          <input type="date" id="editDate" required />
-        </label>
-
-        <label class="field">
-          <span class="label">プリセット</span>
-          <select id="editPreset"></select>
-        </label>
-
-        <label class="field">
-          <span class="label">種目</span>
-          <select id="editExercise"></select>
-        </label>
-
-        <label class="field">
-          <span class="label">セット</span>
-          <input type="number" id="editSetNo" min="1" max="20" inputmode="numeric" />
-        </label>
-      </div>
-
-      <div class="grid3">
-        <label class="field">
-          <span class="label">重量(kg)</span>
-          <input type="number" id="editWeight" step="0.5" inputmode="decimal" />
-        </label>
-        <label class="field">
-          <span class="label">回数</span>
-          <input type="number" id="editReps" inputmode="numeric" />
-        </label>
-        <label class="field">
-          <span class="label">RIR</span>
-          <input type="number" id="editRir" min="0" max="5" inputmode="numeric" />
-        </label>
-      </div>
-
-      <div class="row end">
-        <button id="deleteLogBtn" class="danger" type="button">このログを削除</button>
-        <button id="saveEditBtn" class="primary" type="button">変更を保存</button>
-      </div>
-
-      <p class="hint">※ 種目（exercise）も日付も変更できます</p>
+  <!-- Drawer -->
+  <div id="drawerBackdrop" class="backdrop hidden"></div>
+  <aside id="drawer" class="drawer hidden" aria-hidden="true">
+    <div class="drawerHeader">
+      <div class="drawerTitle">メニュー</div>
+      <button id="btnDrawerClose" class="iconBtn" aria-label="close">✕</button>
     </div>
-  </div>
 
-  <script src="app.js"></script>
-</body>
-</html>
+    <div class="drawerBody">
+      <div class="card">
+        <div class="cardTitle">バックアップ</div>
+        <div class="row">
+          <button id="btnExport" class="btn">JSONを書き出す</button>
+          <button id="btnImport" class="btn">JSONを読み込む</button>
+          <input id="fileImport" type="file" accept="application/json" class="hidden" />
+        </div>
+        <p class="muted">機種変更・端末故障に備えて、定期的に書き出し推奨。</p>
+      </div>
+
+      <div class="card danger">
+        <div class="cardTitle">リセット</div>
+        <button id="btnReset" class="btn danger">全データ削除（注意）</button>
+      </div>
+
+      <div class="card">
+        <div class="cardTitle">使い方</div>
+        <ul class="list">
+          <li>プリセットでメニューを作る</li>
+          <li>記録でプリセットを選んで開始</li>
+          <li>各種目に前回と目標が出る</li>
+          <li>履歴で過去を見返す</li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+
+  <div id="toast" class="toast hid

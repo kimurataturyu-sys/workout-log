@@ -1,392 +1,626 @@
-// =====================
-// ① 画面切替（SPA）
-// =====================
-const ROUTES = ["log", "presets", "history"];
+// =========================
+// Workout Log (SPA)
+// record / presets / history
+// with goals based on last performance
+// =========================
 
-function showRoute(route) {
-  if (!ROUTES.includes(route)) route = "log";
+// ----- Storage -----
+const DB_KEY = "workoutlog_v2";
 
-  ROUTES.forEach(r => {
-    const v = document.getElementById(`view-${r}`);
-    if (v) v.classList.toggle("active", r === route);
-
-    const b = document.querySelector(`.tab[data-route="${r}"]`);
-    if (b) b.classList.toggle("active", r === route);
-  });
-
-  // log画面に戻った瞬間、Chartが崩れないように再描画
-  if (route === "log") {
-    const ex = document.getElementById("filterExercise")?.value;
-    if (ex) drawChart(ex);
+function initDB() {
+  const db = { version: 2, presets: [], sessions: [], ui: { activeSessionId: null } };
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+  return db;
+}
+function loadDB() {
+  const raw = localStorage.getItem(DB_KEY);
+  if (!raw) return initDB();
+  try {
+    const db = JSON.parse(raw);
+    if (!db.version) return initDB();
+    if (!Array.isArray(db.presets)) db.presets = [];
+    if (!Array.isArray(db.sessions)) db.sessions = [];
+    if (!db.ui) db.ui = { activeSessionId: null };
+    return db;
+  } catch {
+    return initDB();
   }
 }
-function navigate(route) { location.hash = `#${route}`; }
-
-document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => navigate(btn.dataset.route));
-});
-window.addEventListener("hashchange", () => {
-  const route = location.hash.replace("#", "") || "log";
-  showRoute(route);
-});
-
-// =====================
-// ② ワークアウト（固定版）
-//  ※次のステップで「自由登録」に置き換え予定
-// =====================
-const WORKOUTS = [
-  {
-    id: "PUSH",
-    name: "PUSH｜胸・肩前・三頭",
-    items: [
-      { ex: "ベンチプレス", repMin: 6, repMax: 8, restSec: 120 },
-      { ex: "スミス・インクラインプレス（20〜30°）", repMin: 8, repMax: 10, restSec: 90 },
-      { ex: "スミス・オーバーヘッドプレス", repMin: 6, repMax: 8, restSec: 120 },
-      { ex: "サイドレイズ", repMin: 12, repMax: 15, restSec: 90 },
-      { ex: "オーバーヘッドトライセプスEX", repMin: 10, repMax: 12, restSec: 90 },
-    ],
-  },
-  {
-    id: "PULL",
-    name: "PULL｜背中・二頭",
-    items: [
-      { ex: "チンニング（順手 or パラレル）", repMin: 6, repMax: 10, restSec: 90 },
-      { ex: "チェストサポート・ダンベルロー", repMin: 8, repMax: 10, restSec: 90 },
-      { ex: "デッドリフト", repMin: 5, repMax: 6, restSec: 120 },
-      { ex: "インクラインダンベルカール", repMin: 8, repMax: 10, restSec: 90 },
-    ],
-  },
-  {
-    id: "LEGS",
-    name: "LEGS｜脚",
-    items: [
-      { ex: "バーベルスクワット", repMin: 6, repMax: 8, restSec: 120 },
-      { ex: "レッグプレス", repMin: 10, repMax: 12, restSec: 90 },
-      { ex: "ルーマニアンデッドリフト", repMin: 8, repMax: 10, restSec: 120 },
-      { ex: "ライイングレッグカール", repMin: 10, repMax: 12, restSec: 90 },
-    ],
-  },
-];
-
-// =====================
-// ③ データ（localStorage）
-// =====================
-let logs = JSON.parse(localStorage.getItem("logs") || "[]");
-let chart = null;
-
-function $(id) { return document.getElementById(id); }
-function saveLogs() { localStorage.setItem("logs", JSON.stringify(logs)); }
-
+function saveDB(db) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
+function uid(prefix = "id") {
+  return `${prefix}_${(crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + Math.random().toString(16).slice(2))}`;
+}
 function todayStr() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// 推定1RM（Epley）
-function e1RM(w, r) { return Math.round(w * (1 + r / 30)); }
-
-function metricValue(log, metric) {
-  switch (metric) {
-    case "e1rm": return e1RM(log.weight, log.reps);
-    case "weight": return log.weight;
-    case "reps": return log.reps;
-    case "volume": return Math.round(log.weight * log.reps);
-    default: return e1RM(log.weight, log.reps);
+// ----- Goal logic (筋トレMEMO風：ダブルプログレッション 8-12) -----
+function pickPrevBestSet(sets) {
+  if (!sets || !sets.length) return null;
+  return sets.reduce((best, cur) => {
+    if (!best) return cur;
+    if (cur.w > best.w) return cur;
+    if (cur.w === best.w && cur.r > best.r) return cur;
+    return best;
+  }, null);
+}
+function getPrevForExercise(db, exerciseName) {
+  for (let i = db.sessions.length - 1; i >= 0; i--) {
+    const s = db.sessions[i];
+    const item = (s.items || []).find(it => it.name === exerciseName);
+    if (item && item.sets && item.sets.length) {
+      const best = pickPrevBestSet(item.sets);
+      return { session: s, best };
+    }
   }
+  return null;
 }
+function makeGoal(prevBest, rule) {
+  const min = rule?.min ?? 8;
+  const max = rule?.max ?? 12;
+  const inc = rule?.inc ?? 2.5;
 
-// =====================
-// ④ セレクト初期化
-// =====================
-function populateSetNo(max = 10) {
-  const sel = $("setNo");
-  if (!sel) return;
-  sel.innerHTML = "";
-  for (let i = 1; i <= max; i++) {
-    const o = document.createElement("option");
-    o.value = String(i);
-    o.textContent = `Set ${i}`;
-    sel.appendChild(o);
+  if (!prevBest) {
+    return { w: null, r: null, msg: `初回：${min}〜${max}回を狙う`, status: "warn" };
   }
-  sel.value = "1";
+  const w = prevBest.w, r = prevBest.r;
+
+  if (r >= max) {
+    return { w: round1(w + inc), r: min, msg: `前回${max}達成 → +${inc}kgで${min}回`, status: "ok" };
+  }
+  if (r >= min && r < max) {
+    return { w: w, r: r + 1, msg: `同重量で+1回（${r + 1}回）`, status: "ok" };
+  }
+  return { w: w, r: min, msg: `まず${min}回を安定`, status: "warn" };
+}
+function round1(n) { return Math.round(n * 10) / 10; }
+
+// ----- App state -----
+let db = loadDB();
+let route = "record";
+
+// ----- DOM -----
+const $ = (sel) => document.querySelector(sel);
+const viewRecord = $("#view-record");
+const viewPresets = $("#view-presets");
+const viewHistory = $("#view-history");
+
+const toastEl = $("#toast");
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.remove("hidden");
+  clearTimeout(toastEl.__t);
+  toastEl.__t = setTimeout(() => toastEl.classList.add("hidden"), 1800);
 }
 
-function populateWorkoutSelect() {
-  const sel = $("workoutSelect");
-  if (!sel) return;
+// ----- Drawer -----
+const drawer = $("#drawer");
+const drawerBackdrop = $("#drawerBackdrop");
+function openDrawer() {
+  drawer.classList.remove("hidden");
+  drawerBackdrop.classList.remove("hidden");
+  drawer.setAttribute("aria-hidden", "false");
+}
+function closeDrawer() {
+  drawer.classList.add("hidden");
+  drawerBackdrop.classList.add("hidden");
+  drawer.setAttribute("aria-hidden", "true");
+}
+$("#btnMenu").addEventListener("click", openDrawer);
+$("#btnBackup").addEventListener("click", openDrawer);
+$("#btnDrawerClose").addEventListener("click", closeDrawer);
+drawerBackdrop.addEventListener("click", closeDrawer);
 
-  sel.innerHTML = "";
-  WORKOUTS.forEach(w => {
-    const o = document.createElement("option");
-    o.value = w.id;
-    o.textContent = w.name;
-    sel.appendChild(o);
+// Export / Import / Reset
+$("#btnExport").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `workoutlog_backup_${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("JSONを書き出しました");
+});
+$("#btnImport").addEventListener("click", () => $("#fileImport").click());
+$("#fileImport").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const imported = JSON.parse(text);
+    if (!imported || !imported.version) throw new Error("invalid");
+    db = imported;
+    saveDB(db);
+    renderAll();
+    toast("読み込みOK");
+    closeDrawer();
+  } catch {
+    toast("読み込み失敗：JSONが不正です");
+  } finally {
+    e.target.value = "";
+  }
+});
+$("#btnReset").addEventListener("click", () => {
+  if (!confirm("全データを削除します。よろしいですか？")) return;
+  localStorage.removeItem(DB_KEY);
+  db = loadDB();
+  renderAll();
+  toast("リセットしました");
+  closeDrawer();
+});
+
+// ----- Tabs routing -----
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const r = btn.dataset.route;
+    setRoute(r);
   });
+});
+function setRoute(r) {
+  route = r;
+  renderAll();
+  // URL hash (任意)
+  location.hash = `#${route}`;
+}
+function initRouteFromHash() {
+  const h = (location.hash || "").replace("#", "");
+  if (h === "record" || h === "presets" || h === "history") route = h;
+}
+window.addEventListener("hashchange", () => {
+  initRouteFromHash();
+  renderAll();
+});
 
-  sel.value = WORKOUTS[0].id;
+// ----- Core helpers -----
+function getActiveSession() {
+  const id = db.ui?.activeSessionId;
+  if (!id) return null;
+  return db.sessions.find(s => s.id === id) || null;
+}
+function setActiveSession(id) {
+  db.ui.activeSessionId = id;
+  saveDB(db);
+}
+function stopActiveSession() {
+  db.ui.activeSessionId = null;
+  saveDB(db);
 }
 
-function populateExerciseSelect() {
-  const workoutId = $("workoutSelect")?.value;
-  const workout = WORKOUTS.find(w => w.id === workoutId);
-  const sel = $("exerciseSelect");
-  if (!sel || !workout) return;
-
-  sel.innerHTML = "";
-  workout.items.forEach(item => {
-    const o = document.createElement("option");
-    o.value = item.ex;
-    o.textContent = item.ex;
-    sel.appendChild(o);
+function ensureSampleIfEmpty() {
+  if (db.presets.length) return;
+  db.presets.push({
+    id: uid("p"),
+    name: "PUSH（サンプル）",
+    items: [
+      { name: "ベンチプレス", rule: { type: "double", min: 8, max: 12, inc: 2.5 } },
+      { name: "ショルダープレス", rule: { type: "double", min: 8, max: 12, inc: 2.5 } },
+      { name: "トライセプスプレスダウン", rule: { type: "double", min: 10, max: 15, inc: 2.5 } },
+    ],
   });
+  saveDB(db);
+}
+ensureSampleIfEmpty();
 
-  sel.value = workout.items[0].ex;
-  updateGuide();
+// ----- Render -----
+function renderAll() {
+  // activate view
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+
+  if (route === "record") {
+    viewRecord.classList.add("active");
+    document.querySelector('.tab[data-route="record"]').classList.add("active");
+    renderRecord();
+  } else if (route === "presets") {
+    viewPresets.classList.add("active");
+    document.querySelector('.tab[data-route="presets"]').classList.add("active");
+    renderPresets();
+  } else {
+    viewHistory.classList.add("active");
+    document.querySelector('.tab[data-route="history"]').classList.add("active");
+    renderHistory();
+  }
 }
 
-function getCurrentGuide() {
-  const workoutId = $("workoutSelect")?.value;
-  const ex = $("exerciseSelect")?.value;
-  const w = WORKOUTS.find(x => x.id === workoutId);
-  const item = w?.items?.find(i => i.ex === ex);
-  return item || null;
-}
+function renderRecord() {
+  const active = getActiveSession();
 
-// =====================
-// ⑤ ガイド / フィードバック
-// =====================
-function updateGuide() {
-  const g = getCurrentGuide();
-  const box = $("guide");
-  if (!box) return;
+  // Preset selector
+  const presetOptions = db.presets.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
 
-  if (!g) {
-    box.textContent = "ガイドなし";
-    return;
+  const header = `
+    <div class="card">
+      <div class="row">
+        <div class="cardTitle">記録</div>
+        <span class="spacer"></span>
+        ${active ? `<span class="pill accent">進行中</span>` : `<span class="pill">未開始</span>`}
+      </div>
+      <div class="row">
+        <label class="muted">プリセット</label>
+        <select id="selPreset" ${active ? "disabled" : ""}>${presetOptions}</select>
+        ${active
+          ? `<button id="btnFinish" class="btn ok">完了</button>
+             <button id="btnCancelSession" class="btn danger">中止</button>`
+          : `<button id="btnStart" class="btn primary">開始</button>`}
+      </div>
+      ${active ? `<p class="muted">「完了」で履歴に保存されます（すでに保存されていて、表示が確定するだけ）。</p>` : `<p class="muted">開始すると、各種目に「前回」と「今回目標」が出ます。</p>`}
+    </div>
+  `;
+
+  let body = "";
+  if (!active) {
+    body = `
+      <div class="card">
+        <div class="cardTitle">使い方</div>
+        <ul class="list">
+          <li>まず「プリセット」でメニューを作成</li>
+          <li>ここでプリセットを選んで開始</li>
+          <li>各種目カードの「目標」を見ながら入力</li>
+        </ul>
+      </div>
+    `;
+  } else {
+    body = `
+      <div class="card">
+        <div class="row">
+          <div class="cardTitle">${escapeHtml(active.presetName)}（${active.date}）</div>
+          <span class="spacer"></span>
+          <button id="btnAddExerciseToday" class="btn">＋種目追加（今日だけ）</button>
+        </div>
+        <div class="hr"></div>
+        <div class="grid2">
+          ${active.items.map((ex, idx) => renderExerciseCard(active, ex, idx)).join("")}
+        </div>
+      </div>
+    `;
   }
 
-  box.textContent =
-    `目標：${g.repMin}〜${g.repMax}回 / 休憩：${g.restSec}秒`;
-}
+  viewRecord.innerHTML = header + body;
 
-function updateFeedback() {
-  const fb = $("feedback");
-  if (!fb) return;
+  // wire events
+  if (!active) {
+    $("#btnStart").addEventListener("click", () => {
+      const presetId = $("#selPreset").value;
+      const preset = db.presets.find(p => p.id === presetId);
+      if (!preset) return toast("プリセットが見つかりません");
 
-  const g = getCurrentGuide();
-  const w = Number($("weight")?.value || 0);
-  const r = Number($("reps")?.value || 0);
-  const rir = $("rir")?.value === "" ? null : Number($("rir")?.value);
-
-  if (!g || !w || !r) {
-    fb.textContent = "入力すると、目標レンジ/RIRの目安を表示します";
-    return;
-  }
-
-  // ざっくり判定（あなたのルールを反映しやすい形）
-  let msg = [];
-  msg.push(`推定1RM：${e1RM(w, r)}kg`);
-
-  if (r < g.repMin) msg.push("回数がレンジ未満 → 重すぎの可能性（-2.5kg目安）");
-  else if (r > g.repMax) msg.push("回数がレンジ超え → 次回重量UP候補");
-  else msg.push("回数レンジ内 → OK（RIR1〜2で揃える）");
-
-  if (rir !== null) {
-    if (rir <= 0) msg.push("RIR0以下 → 追い込みすぎ。次は重量/回数を調整");
-    else if (rir >= 3) msg.push("RIR高め → 余裕あり。回数/重量UP検討");
-    else msg.push("RIR1〜2 → 理想");
-  }
-
-  fb.textContent = msg.join(" / ");
-}
-
-// =====================
-// ⑥ ログ追加（重量・回数は残す仕様）
-// =====================
-function addLog(log) {
-  // idは編集/削除のために入れておく（後で履歴画面で使う）
-  log.id = log.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  logs.push(log);
-  saveLogs();
-}
-
-$("logForm")?.addEventListener("submit", e => {
-  e.preventDefault();
-
-  const log = {
-    date: $("date").value,
-    workout: $("workoutSelect")?.value,
-    exercise: $("exerciseSelect")?.value,
-    setNo: Number($("setNo")?.value || 1),
-    weight: Number($("weight").value),
-    reps: Number($("reps").value),
-    rir: $("rir").value === "" ? null : Number($("rir").value),
-  };
-
-  addLog(log);
-
-  // グラフ更新
-  updateFilterExercises();
-  if ($("filterExercise")) {
-    $("filterExercise").value = log.exercise;
-  }
-  drawChart(log.exercise);
-
-  // 次セットへ（重量・回数は残す）
-  $("setNo").value = String(Math.min(log.setNo + 1, 10));
-  $("rir").value = "";
-});
-
-// 入力中フィードバック
-$("workoutSelect")?.addEventListener("change", () => {
-  populateExerciseSelect();
-});
-$("exerciseSelect")?.addEventListener("change", () => {
-  updateGuide();
-});
-["weight", "reps", "rir"].forEach(id => {
-  $(id)?.addEventListener("input", updateFeedback);
-});
-
-// =====================
-// ⑦ グラフ（セット別 / セット合計 / 両方）
-// =====================
-function updateFilterExercises() {
-  const sel = $("filterExercise");
-  if (!sel) return;
-
-  const uniq = [...new Set(logs.map(l => l.exercise))].filter(Boolean);
-  sel.innerHTML = "";
-
-  if (uniq.length === 0) {
-    const o = document.createElement("option");
-    o.textContent = "（記録なし）";
-    sel.appendChild(o);
-    sel.disabled = true;
-    return;
-  }
-
-  sel.disabled = false;
-  uniq.forEach(ex => {
-    const o = document.createElement("option");
-    o.value = ex;
-    o.textContent = ex;
-    sel.appendChild(o);
-  });
-}
-
-function drawChart(exercise) {
-  if (!exercise || !$("chart")) return;
-
-  const metric = $("chartMetric")?.value || "e1rm";
-  const mode = $("chartMode")?.value || "bySet";
-
-  const data = logs
-    .filter(l => l.exercise === exercise)
-    .sort((a, b) => {
-      if (a.date === b.date) return a.setNo - b.setNo;
-      return a.date.localeCompare(b.date);
+      const session = {
+        id: uid("s"),
+        date: todayStr(),
+        presetId: preset.id,
+        presetName: preset.name,
+        items: preset.items.map(it => ({
+          name: it.name,
+          rule: it.rule || { type: "double", min: 8, max: 12, inc: 2.5 },
+          sets: [],
+        })),
+      };
+      db.sessions.push(session);
+      setActiveSession(session.id);
+      saveDB(db);
+      toast("開始しました");
+      renderRecord();
+    });
+  } else {
+    $("#btnFinish").addEventListener("click", () => {
+      stopActiveSession();
+      toast("完了！");
+      renderRecord();
+      setRoute("history");
+    });
+    $("#btnCancelSession").addEventListener("click", () => {
+      if (!confirm("このセッションを削除して中止しますか？")) return;
+      const sid = active.id;
+      db.sessions = db.sessions.filter(s => s.id !== sid);
+      stopActiveSession();
+      saveDB(db);
+      toast("中止しました");
+      renderRecord();
     });
 
-  if (data.length === 0) return;
+    $("#btnAddExerciseToday").addEventListener("click", () => {
+      const name = prompt("追加する種目名（今日だけ）");
+      if (!name) return;
+      const a = getActiveSession();
+      if (!a) return;
+      a.items.push({ name, rule: { type: "double", min: 8, max: 12, inc: 2.5 }, sets: [] });
+      saveDB(db);
+      toast("追加しました");
+      renderRecord();
+    });
 
-  const labels = [...new Set(data.map(d => d.date))];
+    // delegate buttons inside exercises
+    viewRecord.querySelectorAll("[data-action]").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const action = e.currentTarget.dataset.action;
+        const exIndex = Number(e.currentTarget.dataset.exIndex);
+        const setIndex = e.currentTarget.dataset.setIndex ? Number(e.currentTarget.dataset.setIndex) : null;
 
-  const byDate = {};
-  data.forEach(d => {
-    byDate[d.date] ||= {};
-    byDate[d.date][d.setNo] = metricValue(d, metric);
-  });
+        const a = getActiveSession();
+        if (!a) return;
 
-  const sets = [...new Set(data.map(d => d.setNo))].sort((a, b) => a - b);
+        const ex = a.items[exIndex];
+        if (!ex) return;
 
-  let datasets = [];
+        if (action === "addSet") {
+          ex.sets.push({ w: null, r: null });
+          saveDB(db);
+          renderRecord();
+        }
+        if (action === "delSet") {
+          ex.sets.splice(setIndex, 1);
+          saveDB(db);
+          renderRecord();
+        }
+        if (action === "delExercise") {
+          if (!confirm(`「${ex.name}」を今日のセッションから削除しますか？`)) return;
+          a.items.splice(exIndex, 1);
+          saveDB(db);
+          renderRecord();
+        }
+      });
+    });
 
-  // セット別
-  if (mode === "bySet" || mode === "both") {
-    sets.forEach(setNo => {
-      const values = labels.map(dt => byDate[dt]?.[setNo] ?? null);
-      datasets.push({
-        label: `Set ${setNo}`,
-        data: values,
-        borderWidth: 2,
+    // inputs
+    viewRecord.querySelectorAll("input[data-bind]").forEach(inp => {
+      inp.addEventListener("input", (e) => {
+        const a = getActiveSession();
+        if (!a) return;
+
+        const exIndex = Number(e.target.dataset.exIndex);
+        const setIndex = Number(e.target.dataset.setIndex);
+        const key = e.target.dataset.bind;
+
+        const ex = a.items[exIndex];
+        const st = ex?.sets?.[setIndex];
+        if (!st) return;
+
+        const val = e.target.value === "" ? null : Number(e.target.value);
+        st[key] = Number.isFinite(val) ? val : null;
+        saveDB(db);
       });
     });
   }
+}
 
-  // セット合計（その日）
-  if (mode === "sum" || mode === "both") {
-    const sumValues = labels.map(dt => {
-      const setsObj = byDate[dt];
-      if (!setsObj) return null;
+function renderExerciseCard(activeSession, exercise, exIndex) {
+  const prev = getPrevForExercise(db, exercise.name);
+  const prevText = prev?.best ? `前回: ${prev.best.w}kg × ${prev.best.r}` : "前回: なし";
+  const goal = makeGoal(prev?.best, exercise.rule);
+  const goalText = (goal.w != null && goal.r != null)
+    ? `目標: ${goal.w}kg × ${goal.r}（${goal.msg}）`
+    : `目標: ${goal.msg}`;
 
-      const vals = Object.values(setsObj);
-      if (metric === "volume") {
-        return vals.reduce((a, b) => a + b, 0);
-      } else {
-        return Math.max(...vals);
+  const goalClass = goal.status === "ok" ? "goalOk" : "goalWarn";
+
+  const setsHtml = (exercise.sets || []).map((s, i) => `
+    <div class="setRow">
+      <div class="setIdx">#${i + 1}</div>
+      <input type="number" inputmode="decimal" placeholder="kg" value="${s.w ?? ""}"
+        data-bind="w" data-ex-index="${exIndex}" data-set-index="${i}" />
+      <input type="number" inputmode="numeric" placeholder="rep" value="${s.r ?? ""}"
+        data-bind="r" data-ex-index="${exIndex}" data-set-index="${i}" />
+      <button class="smallBtn danger" data-action="delSet" data-ex-index="${exIndex}" data-set-index="${i}">削除</button>
+    </div>
+  `).join("");
+
+  return `
+    <div class="exercise">
+      <div class="row">
+        <div class="exerciseTitle">${escapeHtml(exercise.name)}</div>
+        <span class="spacer"></span>
+        <button class="smallBtn danger" data-action="delExercise" data-ex-index="${exIndex}">種目削除</button>
+      </div>
+      <div class="exerciseMeta">
+        <span>${prevText}</span>
+      </div>
+      <div class="exerciseGoal ${goalClass}">${goalText}</div>
+
+      ${setsHtml ? `<div class="hr"></div>${setsHtml}` : `<p class="muted">セットが未入力です。</p>`}
+
+      <div class="row">
+        <button class="btn" data-action="addSet" data-ex-index="${exIndex}">＋セット追加</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderPresets() {
+  const list = db.presets.map(p => `
+    <div class="card">
+      <div class="row">
+        <div class="cardTitle">${escapeHtml(p.name)}</div>
+        <span class="spacer"></span>
+        <button class="btn" data-action="editPreset" data-id="${p.id}">編集</button>
+        <button class="btn danger" data-action="delPreset" data-id="${p.id}">削除</button>
+      </div>
+      <div class="pills">
+        ${(p.items || []).slice(0, 8).map(it => `<span class="pill">${escapeHtml(it.name)}</span>`).join("")}
+        ${(p.items || []).length > 8 ? `<span class="pill">…</span>` : ``}
+      </div>
+    </div>
+  `).join("");
+
+  viewPresets.innerHTML = `
+    <div class="card">
+      <div class="row">
+        <div class="cardTitle">プリセット</div>
+        <span class="spacer"></span>
+        <button id="btnNewPreset" class="btn primary">＋新規作成</button>
+      </div>
+      <p class="muted">作ったプリセットを「記録」で選んで開始。</p>
+    </div>
+    ${list || `<div class="card"><p class="muted">まだプリセットがありません。</p></div>`}
+  `;
+
+  $("#btnNewPreset").addEventListener("click", () => openPresetEditor(null));
+
+  viewPresets.querySelectorAll("[data-action]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const action = e.currentTarget.dataset.action;
+      const id = e.currentTarget.dataset.id;
+      if (action === "editPreset") openPresetEditor(id);
+      if (action === "delPreset") {
+        if (!confirm("このプリセットを削除しますか？")) return;
+        db.presets = db.presets.filter(p => p.id !== id);
+        saveDB(db);
+        toast("削除しました");
+        renderPresets();
       }
     });
-
-    datasets.push({
-      label: "その日の代表値（合計/最大）",
-      data: sumValues,
-      borderWidth: 3,
-      borderDash: [6, 4],
-    });
-  }
-
-  if (chart) chart.destroy();
-
-  chart = new Chart($("chart"), {
-    type: "line",
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: "#ffffff" } }
-      },
-      scales: {
-        x: { ticks: { color: "#cfcfcf" }, grid: { color: "rgba(255,255,255,0.06)" } },
-        y: { ticks: { color: "#cfcfcf" }, grid: { color: "rgba(255,255,255,0.06)" } },
-      }
-    }
   });
 }
 
-$("filterExercise")?.addEventListener("change", e => drawChart(e.target.value));
-$("chartMetric")?.addEventListener("change", () => {
-  const ex = $("filterExercise")?.value;
-  if (ex) drawChart(ex);
-});
-$("chartMode")?.addEventListener("change", () => {
-  const ex = $("filterExercise")?.value;
-  if (ex) drawChart(ex);
-});
+function openPresetEditor(presetId) {
+  const preset = presetId ? db.presets.find(p => p.id === presetId) : null;
+  const name = preset ? preset.name : "";
+  const items = preset ? preset.items.map(it => it.name).join("\n") : "";
 
-// =====================
-// ⑧ 初期化
-// =====================
-function init() {
-  // 日付デフォルト
-  if ($("date") && !$("date").value) $("date").value = todayStr();
+  const newName = prompt(
+    preset ? "プリセット名を編集" : "プリセット名を入力",
+    name || "PUSH"
+  );
+  if (!newName) return;
 
-  populateSetNo(10);
-  populateWorkoutSelect();
-  populateExerciseSelect();
-  updateGuide();
-  updateFeedback();
+  const exText = prompt(
+    "種目を1行ずつ入力（改行OK）\n例）ベンチプレス\nショルダープレス\nトライセプス",
+    items || "ベンチプレス\nショルダープレス"
+  );
+  if (exText == null) return;
 
-  updateFilterExercises();
-  if ($("filterExercise") && !$("filterExercise").disabled) {
-    drawChart($("filterExercise").value);
+  const exerciseNames = exText.split("\n").map(s => s.trim()).filter(Boolean);
+  if (!exerciseNames.length) return toast("種目が空です");
+
+  const toItems = exerciseNames.map(n => ({
+    name: n,
+    rule: { type: "double", min: 8, max: 12, inc: 2.5 }, // 最初は固定でOK（後で種目別編集も可能）
+  }));
+
+  if (!preset) {
+    db.presets.push({ id: uid("p"), name: newName, items: toItems });
+    saveDB(db);
+    toast("作成しました");
+  } else {
+    preset.name = newName;
+    preset.items = toItems;
+    saveDB(db);
+    toast("更新しました");
   }
-
-  // 初期画面
-  showRoute(location.hash.replace("#", "") || "log");
+  renderPresets();
 }
-init();
+
+function renderHistory() {
+  // newest first
+  const sessions = [...db.sessions].sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  const cards = sessions.map(s => {
+    const totalSets = (s.items || []).reduce((sum, it) => sum + (it.sets?.length || 0), 0);
+    return `
+      <div class="card">
+        <div class="row">
+          <div class="cardTitle">${escapeHtml(s.presetName)}（${s.date}）</div>
+          <span class="spacer"></span>
+          <button class="btn" data-action="openSession" data-id="${s.id}">開く</button>
+          <button class="btn danger" data-action="delSession" data-id="${s.id}">削除</button>
+        </div>
+        <div class="exerciseMeta">
+          <span class="pill">種目 ${s.items?.length || 0}</span>
+          <span class="pill">セット ${totalSets}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  viewHistory.innerHTML = `
+    <div class="card">
+      <div class="row">
+        <div class="cardTitle">履歴</div>
+        <span class="spacer"></span>
+        <button id="btnBackToRecord" class="btn">記録へ</button>
+      </div>
+      <p class="muted">タップして詳細を表示。不要なら削除できます。</p>
+    </div>
+    ${cards || `<div class="card"><p class="muted">まだ履歴がありません。</p></div>`}
+    <div id="historyDetail"></div>
+  `;
+
+  $("#btnBackToRecord").addEventListener("click", () => setRoute("record"));
+
+  viewHistory.querySelectorAll("[data-action]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const action = e.currentTarget.dataset.action;
+      const id = e.currentTarget.dataset.id;
+
+      if (action === "delSession") {
+        if (!confirm("この履歴を削除しますか？")) return;
+        db.sessions = db.sessions.filter(s => s.id !== id);
+        if (db.ui.activeSessionId === id) db.ui.activeSessionId = null;
+        saveDB(db);
+        toast("削除しました");
+        renderHistory();
+      }
+      if (action === "openSession") {
+        const s = db.sessions.find(x => x.id === id);
+        if (!s) return;
+        renderHistoryDetail(s);
+      }
+    });
+  });
+}
+
+function renderHistoryDetail(session) {
+  const el = $("#historyDetail");
+  const exHtml = (session.items || []).map(it => {
+    const best = pickPrevBestSet(it.sets || []);
+    const bestText = best ? `${best.w}kg×${best.r}` : "—";
+    return `
+      <div class="exercise">
+        <div class="exerciseTitle">${escapeHtml(it.name)}</div>
+        <div class="exerciseMeta">
+          <span class="pill">ベスト ${bestText}</span>
+          <span class="pill">セット ${(it.sets || []).length}</span>
+        </div>
+        ${(it.sets || []).map((s, i) => `
+          <div class="setRow">
+            <div class="setIdx">#${i + 1}</div>
+            <div class="pill">${s.w ?? "—"}kg</div>
+            <div class="pill">${s.r ?? "—"}rep</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="row">
+        <div class="cardTitle">詳細：${escapeHtml(session.presetName)}（${session.date}）</div>
+        <span class="spacer"></span>
+        <button class="btn" id="btnCloseDetail">閉じる</button>
+      </div>
+      <div class="hr"></div>
+      <div class="grid2">${exHtml}</div>
+    </div>
+  `;
+
+  $("#btnCloseDetail").addEventListener("click", () => {
+    el.innerHTML = "";
+  });
+}
+
+// ----- utilities -----
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+// init
+initRouteFromHash();
+renderAll();
